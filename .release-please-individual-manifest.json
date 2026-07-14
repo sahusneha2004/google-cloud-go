@@ -12,5 +12,5 @@
   "pubsublite": "1.9.0",
   "spanner": "1.92.0",
   "storage": "1.63.1",
-  "vertexai": "0.19.0"
+  "vertexai": "0.20.0"
 }
