@@ -407,7 +407,7 @@ func (r *Reader) Close() error {
 	}
 	err := r.reader.Close()
 	r.mu.Lock()
-	if r.err != nil {
+	if r.err != nil && !isCanceledError(r.err) {
 		err = r.err
 	}
 	r.mu.Unlock()

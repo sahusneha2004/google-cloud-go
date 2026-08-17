@@ -30,6 +30,8 @@ import (
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 	"go.opentelemetry.io/otel/trace"
 	"google.golang.org/api/googleapi"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 func TestStorageTraceStartEndSpan(t *testing.T) {
@@ -132,6 +134,60 @@ func TestStorageTraceEndSpanRecordError(t *testing.T) {
 	}
 	if want := otcodes.Error; gotSpan.Status.Code != want {
 		t.Errorf("got %v, want %v", gotSpan.Status.Code, want)
+	}
+}
+
+func TestStorageTraceEndSpanCanceledNotError(t *testing.T) {
+	testCases := []struct {
+		name string
+		err  error
+	}{
+		{
+			name: "context.Canceled",
+			err:  context.Canceled,
+		},
+		{
+			name: "grpc_codes.Canceled",
+			err:  status.Error(codes.Canceled, "stream canceled"),
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			te := testutil.NewOpenTelemetryTestExporter()
+			t.Cleanup(func() {
+				te.Unregister(ctx)
+			})
+			t.Setenv("GO_STORAGE_DEV_OTEL_TRACING", "true")
+
+			spanName := "Object.Reader"
+			ctx, _ = startSpan(ctx, spanName)
+			endSpan(ctx, tc.err)
+
+			spans := te.Spans()
+			if len(spans) != 1 {
+				t.Fatalf("expected 1 span, got %d", len(spans))
+			}
+			gotSpan := spans[0]
+
+			// Canceled operations should NOT be marked as Error status.
+			if gotSpan.Status.Code == otcodes.Error {
+				t.Errorf("expected span status to not be Error for canceled error, got %v", gotSpan.Status.Code)
+			}
+
+			// Verify rpc.response.status_code is recorded as CANCELLED.
+			found := false
+			for _, a := range gotSpan.Attributes {
+				if string(a.Key) == "rpc.response.status_code" && a.Value.AsString() == "CANCELLED" {
+					found = true
+					break
+				}
+			}
+			if !found {
+				t.Errorf("attribute rpc.response.status_code=CANCELLED not found on span")
+			}
+		})
 	}
 }
 

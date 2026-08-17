@@ -852,3 +852,15 @@ func TestHTTPReaderMidStreamRetryCRC(t *testing.T) {
 		}
 	}, option.WithHTTPClient(hc))
 }
+
+func TestReaderCloseWithCanceledStreamNoError(t *testing.T) {
+	ctx := context.Background()
+	r := &Reader{
+		ctx:    ctx,
+		reader: io.NopCloser(strings.NewReader("some data")),
+		err:    context.Canceled,
+	}
+	if err := r.Close(); err != nil {
+		t.Errorf("Reader.Close(): got %v, want nil", err)
+	}
+}

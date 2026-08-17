@@ -121,6 +121,7 @@ func startSpan(ctx context.Context, name string, opts ...trace.SpanStartOption) 
 	return ctx, span
 }
 
+// isNotFoundError reports whether the error represents a resource not found error.
 func isNotFoundError(err error) bool {
 	if errors.Is(err, ErrBucketNotExist) {
 		return true
@@ -128,6 +129,20 @@ func isNotFoundError(err error) bool {
 	var e *googleapi.Error
 	if s, ok := status.FromError(err); (ok && s.Code() == codes.NotFound) ||
 		(errors.As(err, &e) && e.Code == http.StatusNotFound) {
+		return true
+	}
+	return false
+}
+
+// isCanceledError reports whether the error represents a context or gRPC stream cancellation.
+func isCanceledError(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, context.Canceled) {
+		return true
+	}
+	if s, ok := status.FromError(err); ok && s.Code() == codes.Canceled {
 		return true
 	}
 	return false
@@ -153,8 +168,12 @@ func endSpan(ctx context.Context, err error) {
 	} else {
 		span := trace.SpanFromContext(ctx)
 		if err != nil {
-			span.SetStatus(otelcodes.Error, err.Error())
-			span.RecordError(err)
+			if isCanceledError(err) {
+				span.SetAttributes(attribute.String("rpc.response.status_code", "CANCELLED"))
+			} else {
+				span.SetStatus(otelcodes.Error, err.Error())
+				span.RecordError(err)
+			}
 		}
 		span.End()
 	}
