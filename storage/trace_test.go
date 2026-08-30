@@ -350,3 +350,91 @@ func TestEndSpanEviction(t *testing.T) {
 		})
 	}
 }
+
+func TestStartAppendTakeoverSpan(t *testing.T) {
+	ctx := context.Background()
+	te := testutil.NewOpenTelemetryTestExporter()
+	t.Cleanup(func() { 
+		te.Unregister(ctx)
+	})
+	t.Setenv("GO_STORAGE_DEV_OTEL_TRACING", "true")
+
+	toCtx, toSpan := startAppendTakeoverSpan(ctx, 123456789)
+	recordTakeoverOffset(toSpan, 4096)
+	endSpan(toCtx, nil)
+
+	spans := te.Spans()
+	if len(spans) != 1 {
+		t.Fatalf("expected 1 span, got %d", len(spans))
+	}
+	gotSpan := spans[0]
+	if got, want := gotSpan.Name, "cloud.google.com/go/storage.Storage.AppendTakeover"; got != want {
+		t.Errorf("got span name %q, want %q", got, want)
+	}
+	foundGen := false
+	foundOffset := false
+	for _, a := range gotSpan.Attributes {
+		if string(a.Key) == "gcp.storage.object.generation" {
+			foundGen = true
+			if got, want := a.Value.AsInt64(), int64(123456789); got != want {
+				t.Errorf("generation = %d, want %d", got, want)
+			}
+		}
+		if string(a.Key) == "gcp.storage.takeover.offset" {
+			foundOffset = true
+			if got, want := a.Value.AsInt64(), int64(4096); got != want {
+				t.Errorf("takeover offset = %d, want %d", got, want)
+			}
+		}
+	}
+	if !foundGen {
+		t.Errorf("gcp.storage.object.generation attribute not found on span")
+	}
+	if !foundOffset {
+		t.Errorf("gcp.storage.takeover.offset attribute not found on span")
+	}
+}
+
+func TestAppendTakeoverSpanDevTracingDisabled(t *testing.T) {
+	ctx := context.Background()
+	te := testutil.NewOpenTelemetryTestExporter()
+	t.Cleanup(func() {
+		te.Unregister(ctx)
+	})
+	t.Setenv("GO_STORAGE_DEV_OTEL_TRACING", "false")
+
+	toCtx, span := startAppendTakeoverSpan(ctx, 123456789)
+	recordTakeoverOffset(span, 4096)
+	endSpan(toCtx, nil)
+
+	if span.SpanContext().IsValid() {
+		t.Errorf("expected invalid span context when dev tracing is disabled, got %v", span.SpanContext())
+	}
+	spans := te.Spans()
+	if len(spans) > 0 {
+		t.Fatalf("expected 0 ended spans because dev tracing is disabled, but got %d ended spans: %v", len(spans), spans[0].Name)
+	}
+}
+
+func TestStartAppendTakeoverSpan_UnspecifiedGeneration(t *testing.T) {
+	ctx := context.Background()
+	te := testutil.NewOpenTelemetryTestExporter()
+	t.Cleanup(func() {
+		te.Unregister(ctx)
+	})
+	t.Setenv("GO_STORAGE_DEV_OTEL_TRACING", "true")
+
+	toCtx, toSpan := startAppendTakeoverSpan(ctx, 0)
+	recordTakeoverOffset(toSpan, 0)
+	endSpan(toCtx, nil)
+
+	spans := te.Spans()
+	if len(spans) != 1 {
+		t.Fatalf("expected 1 span, got %d", len(spans))
+	}
+	for _, a := range spans[0].Attributes {
+		if string(a.Key) == "gcp.storage.object.generation" {
+			t.Errorf("expected no gcp.storage.object.generation attribute for generation 0, got %v", a.Value.AsInt64())
+		}
+	}
+}

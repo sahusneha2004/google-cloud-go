@@ -1494,7 +1494,10 @@ func (s *gRPCAppendTakeoverBidiWriteBufferSender) connect(ctx context.Context, c
 	// connection
 	firstSend := true
 	if !s.takeoverReported {
+		gen := s.firstMessage.GetAppendObjectSpec().GetGeneration()
+		toCtx, toSpan := startAppendTakeoverSpan(ctx, gen)
 		if err := s.send(stream, nil, 0, false, false, true); err != nil {
+			endSpan(toCtx, err)
 			s.streamErr = err
 			close(cs.completions)
 			return
@@ -1503,6 +1506,7 @@ func (s *gRPCAppendTakeoverBidiWriteBufferSender) connect(ctx context.Context, c
 
 		resp, err := stream.Recv()
 		if err != nil {
+			endSpan(toCtx, err)
 			// A Recv() error may be a redirect.
 			s.streamErr = s.maybeHandleRedirectionError(err)
 			close(cs.completions)
@@ -1511,10 +1515,15 @@ func (s *gRPCAppendTakeoverBidiWriteBufferSender) connect(ctx context.Context, c
 
 		c := completion(resp)
 		if c == nil {
-			s.streamErr = fmt.Errorf("storage: unexpectedly no size in initial takeover response %+v", resp)
+			err := fmt.Errorf("storage: unexpectedly no size in initial takeover response %+v", resp)
+			endSpan(toCtx, err)
+			s.streamErr = err
 			close(cs.completions)
 			return
 		}
+
+		recordTakeoverOffset(toSpan, c.flushOffset)
+		endSpan(toCtx, nil)
 
 		s.maybeUpdateFirstMessage(resp)
 		s.takeoverReported = true

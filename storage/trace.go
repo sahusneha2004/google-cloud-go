@@ -180,3 +180,22 @@ func getCommonAttributes() []attribute.KeyValue {
 func appendPackageName(spanName string) string {
 	return fmt.Sprintf("%s.%s", gcpClientArtifact, spanName)
 }
+
+// startAppendTakeoverSpan starts a T5 internal operation span for taking over an appendable object.
+func startAppendTakeoverSpan(ctx context.Context, generation int64) (context.Context, trace.Span) {
+	if !isOTelTracingDevEnabled() {
+		return ctx, trace.SpanFromContext(ctx)
+	}
+	opts := []trace.SpanStartOption{}
+	if generation > 0 {
+		opts = append(opts, trace.WithAttributes(attribute.Int64("gcp.storage.object.generation", generation)))
+	}
+	return startSpan(ctx, "Storage.AppendTakeover", opts...)
+}
+
+// recordTakeoverOffset records the byte offset discovered during append takeover.
+func recordTakeoverOffset(span trace.Span, offset int64) {
+	if span != nil && span.IsRecording() {
+		span.SetAttributes(attribute.Int64("gcp.storage.takeover.offset", offset))
+	}
+}
