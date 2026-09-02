@@ -385,3 +385,14 @@ func (t *TracedTokenSource) Token() (*oauth2.Token, error) {
 	endSpan(ctx, err)
 	return tok, err
 }
+
+// startChecksumSpan starts a T5 internal operation span for computing or verifying data checksums.
+func startChecksumSpan(ctx context.Context, checksumType string) (context.Context, trace.Span) {
+	if !isOTelTracingDevEnabled() {
+		return ctx, trace.SpanFromContext(ctx)
+	}
+	opts := []trace.SpanStartOption{
+		trace.WithAttributes(attribute.String("gcp.storage.checksum.type", checksumType)),
+	}
+	return startSpan(ctx, "Storage.CalculateChecksum", opts...)
+}
